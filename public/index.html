@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小红书评论抓取</title>
+    <link rel="stylesheet" href="public/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>小红书评论抓取工具</h1>
+        
+        <div class="input-group">
+            <input type="text" id="urlInput" placeholder="请输入小红书帖子 URL (例如: https://www.xiaohongshu.com/explore/...)">
+            <button id="startBtn">开始抓取</button>
+        </div>
+
+        <div id="status" class="status">准备就绪</div>
+
+        <div class="main-content">
+            <div class="left-panel">
+                <h3>运行日志</h3>
+                <div id="logArea" class="log-area"></div>
+            </div>
+            
+            <div class="right-panel">
+                <div class="header-row">
+                    <h3>评论列表 (<span id="commentCount">0</span>)</h3>
+                    <a id="downloadBtn" href="#" class="download-btn hidden" target="_blank">下载表格 (CSV)</a>
+                </div>
+                <div class="table-container">
+                    <table id="commentsTable">
+                        <thead>
+                            <tr>
+                                <th>用户</th>
+                                <th>内容</th>
+                                <th>点赞</th>
+                                <th>时间</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Comments will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="public/script.js"></script>
+</body>
+</html>

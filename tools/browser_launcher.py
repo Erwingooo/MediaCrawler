@@ -91,7 +91,22 @@ class BrowserLauncher:
                 paths.append(path)
                 
         return paths
-    
+
+    def is_profile_in_use(self, user_data_dir: str) -> bool:
+        try:
+            lock_names = [
+                "SingletonLock",
+                "SingletonCookie",
+                "SingletonSocket",
+                "DevToolsActivePort",
+            ]
+            for name in lock_names:
+                if os.path.exists(os.path.join(user_data_dir, name)):
+                    return True
+            return False
+        except Exception:
+            return False
+
     def find_available_port(self, start_port: int = 9222) -> int:
         """
         查找可用的端口

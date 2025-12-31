@@ -127,14 +127,50 @@ class CDPBrowserManager:
         """
         # 设置用户数据目录（如果启用了保存登录状态）
         user_data_dir = None
+        used_default_profile = False
         if config.SAVE_LOGIN_STATE:
-            user_data_dir = os.path.join(
-                os.getcwd(),
-                "browser_data",
-                f"cdp_{config.USER_DATA_DIR % config.PLATFORM}",
-            )
-            os.makedirs(user_data_dir, exist_ok=True)
-            utils.logger.info(f"[CDPBrowserManager] 用户数据目录: {user_data_dir}")
+            # 优先使用系统默认浏览器用户目录以复用登录态
+            if getattr(config, "USE_BROWSER_DEFAULT_PROFILE", False):
+                try:
+                    user_data_dir = self._get_default_profile_dir(browser_path)
+                    utils.logger.info(f"[CDPBrowserManager] 使用系统默认用户目录: {user_data_dir}")
+                    used_default_profile = True
+                except Exception as e:
+                    utils.logger.warning(f"[CDPBrowserManager] 获取系统默认用户目录失败: {e}")
+            # 回退到项目内置目录
+            if not user_data_dir:
+                user_data_dir = os.path.join(
+                    os.getcwd(),
+                    "browser_data",
+                    f"cdp_{config.USER_DATA_DIR % config.PLATFORM}",
+                )
+                os.makedirs(user_data_dir, exist_ok=True)
+                utils.logger.info(f"[CDPBrowserManager] 用户数据目录: {user_data_dir}")
+
+        if used_default_profile and user_data_dir:
+            try:
+                devtools_port_file = os.path.join(user_data_dir, "DevToolsActivePort")
+                if os.path.exists(devtools_port_file):
+                    try:
+                        with open(devtools_port_file, "r") as f:
+                            line = f.readline().strip()
+                        if line.isdigit():
+                            self.debug_port = int(line)
+                            utils.logger.info(f"[CDPBrowserManager] 发现已有CDP实例，端口: {self.debug_port}")
+                            return
+                    except Exception as read_err:
+                        utils.logger.warning(f"[CDPBrowserManager] 读取DevToolsActivePort失败: {read_err}")
+                if self.launcher.is_profile_in_use(user_data_dir):
+                    utils.logger.warning("[CDPBrowserManager] 默认用户目录正在使用，切换到独立目录以避免冲突")
+                    user_data_dir = os.path.join(
+                        os.getcwd(),
+                        "browser_data",
+                        f"cdp_{config.USER_DATA_DIR % config.PLATFORM}",
+                    )
+                    os.makedirs(user_data_dir, exist_ok=True)
+                    utils.logger.info(f"[CDPBrowserManager] 使用独立用户目录: {user_data_dir}")
+            except Exception as e:
+                utils.logger.warning(f"[CDPBrowserManager] 默认目录检查失败: {e}")
 
         # 启动浏览器
         self.launcher.browser_process = self.launcher.launch_browser(
@@ -158,6 +194,25 @@ class CDPBrowserManager:
             utils.logger.warning(
                 "[CDPBrowserManager] CDP连接测试失败，但将继续尝试连接"
             )
+    
+    def _get_default_profile_dir(self, browser_path: str) -> str:
+        """
+        推断系统默认浏览器用户数据目录
+        """
+        home = os.path.expanduser("~")
+        lower = browser_path.lower()
+        # macOS
+        if "google chrome" in lower or "chrome.app" in lower:
+            return os.path.join(home, "Library", "Application Support", "Google", "Chrome")
+        if "microsoft edge" in lower or "edge.app" in lower or "msedge" in lower:
+            return os.path.join(home, "Library", "Application Support", "Microsoft Edge")
+        # Linux (简单猜测)
+        if "chromium" in lower or "chrome" in lower:
+            return os.path.join(home, ".config", "google-chrome")
+        if "microsoft-edge" in lower or "edge" in lower:
+            return os.path.join(home, ".config", "microsoft-edge")
+        # Windows 暂不支持自动推断
+        raise RuntimeError("无法推断默认用户目录")
 
     async def _get_browser_websocket_url(self, debug_port: int) -> str:
         """

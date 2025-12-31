@@ -49,7 +49,7 @@ class XiaoHongShuCrawler(AbstractCrawler):
     def __init__(self) -> None:
         self.index_url = "https://www.xiaohongshu.com"
         # self.user_agent = utils.get_user_agent()
-        self.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        self.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
         self.cdp_manager = None
 
     async def start(self) -> None:
@@ -86,6 +86,11 @@ class XiaoHongShuCrawler(AbstractCrawler):
 
             # Create a client to interact with the xiaohongshu website.
             self.xhs_client = await self.create_xhs_client(httpx_proxy_format)
+            
+            # 在CDP模式下，尝试先更新一次Cookie，确保获取到浏览器最新的Cookie
+            if config.ENABLE_CDP_MODE:
+                 await self.xhs_client.update_cookies(browser_context=self.browser_context)
+                 
             if not await self.xhs_client.pong():
                 login_obj = XiaoHongShuLogin(
                     login_type=config.LOGIN_TYPE,
@@ -96,6 +101,8 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 )
                 await login_obj.begin()
                 await self.xhs_client.update_cookies(browser_context=self.browser_context)
+                await asyncio.sleep(8)
+                utils.logger.info("登录后静置 8 秒完成")
 
             crawler_type_var.set(config.CRAWLER_TYPE)
             if config.CRAWLER_TYPE == "search":
@@ -333,6 +340,29 @@ class XiaoHongShuCrawler(AbstractCrawler):
         """Create xhs client"""
         utils.logger.info("[XiaoHongShuCrawler.create_xhs_client] Begin create xiaohongshu API client ...")
         cookie_str, cookie_dict = utils.convert_cookies(await self.browser_context.cookies())
+
+        # 动态对齐真实浏览器版本，避免指纹不一致导致风控
+        sec_ch_ua = '"Chromium";v="131", "Google Chrome";v="131", "Not.A/Brand";v="99"'
+        ua = self.user_agent
+        try:
+            if self.cdp_manager and self.cdp_manager.is_connected():
+                browser_info = await self.cdp_manager.get_browser_info()
+                version = browser_info.get("version", "")
+                if version:
+                    try:
+                        major = version.split(".")[0]
+                        sec_ch_ua = f'"Chromium";v="{major}", "Google Chrome";v="{major}", "Not.A/Brand";v="99"'
+                    except Exception:
+                        pass
+                    # 以当前UA为模板替换Chrome版本号
+                    if "Chrome/" in ua:
+                        prefix = ua.split("Chrome/")[0]
+                        ua = f'{prefix}Chrome/{version} Safari/537.36'
+                    else:
+                        ua = f'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36'
+        except Exception as e:
+            utils.logger.info(f"[XiaoHongShuCrawler.create_xhs_client] align ua failed: {e}")
+
         xhs_client_obj = XiaoHongShuClient(
             proxy=httpx_proxy,
             headers={
@@ -344,13 +374,13 @@ class XiaoHongShuCrawler(AbstractCrawler):
                 "pragma": "no-cache",
                 "priority": "u=1, i",
                 "referer": "https://www.xiaohongshu.com/",
-                "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+                "sec-ch-ua": sec_ch_ua,
                 "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
+                "sec-ch-ua-platform": '"Mac OS"',
                 "sec-fetch-dest": "empty",
                 "sec-fetch-mode": "cors",
                 "sec-fetch-site": "same-site",
-                "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+                "user-agent": ua,
                 "Cookie": cookie_str,
             },
             playwright_page=self.context_page,
@@ -381,11 +411,19 @@ class XiaoHongShuCrawler(AbstractCrawler):
                     "height": 1080
                 },
                 user_agent=user_agent,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-infobars"],
             )
             return browser_context
         else:
-            browser = await chromium.launch(headless=headless, proxy=playwright_proxy)  # type: ignore
-            browser_context = await browser.new_context(viewport={"width": 1920, "height": 1080}, user_agent=user_agent)
+            browser = await chromium.launch(
+                headless=headless,
+                proxy=playwright_proxy,  # type: ignore
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-infobars"],
+            )
+            browser_context = await browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent=user_agent,
+            )
             return browser_context
 
     async def launch_browser_with_cdp(

@@ -47,7 +47,17 @@ class XiaoHongShuLogin(AbstractLogin):
             if max retry times reached, raise RetryError
         """
 
-        if "请通过验证" in await self.context_page.content():
+        try:
+            page_content = await self.context_page.content()
+        except Exception:
+            try:
+                self.context_page = await self.browser_context.new_page()
+                await self.context_page.goto("https://www.xiaohongshu.com")
+                page_content = await self.context_page.content()
+            except Exception:
+                return False
+
+        if "请通过验证" in page_content:
             utils.logger.info("[XiaoHongShuLogin.check_login_state] 登录过程中出现验证码，请手动验证")
 
         current_cookie = await self.browser_context.cookies()
@@ -140,6 +150,14 @@ class XiaoHongShuLogin(AbstractLogin):
     async def login_by_qrcode(self):
         """login xiaohongshu website and keep webdriver login state"""
         utils.logger.info("[XiaoHongShuLogin.login_by_qrcode] Begin login xiaohongshu by qrcode ...")
+        try:
+            _ = await self.context_page.content()
+        except Exception:
+            try:
+                self.context_page = await self.browser_context.new_page()
+                await self.context_page.goto("https://www.xiaohongshu.com")
+            except Exception:
+                return
         # login_selector = "div.login-container > div.left > div.qrcode > img"
         qrcode_img_selector = "xpath=//img[@class='qrcode-img']"
         # find login qrcode
@@ -182,6 +200,18 @@ class XiaoHongShuLogin(AbstractLogin):
         wait_redirect_seconds = 5
         utils.logger.info(f"[XiaoHongShuLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
         await asyncio.sleep(wait_redirect_seconds)
+        try:
+            await self.context_page.goto("https://www.xiaohongshu.com/search_result?keyword=%E5%B0%8F%E7%BA%A2%E4%B9%A6")
+        except Exception:
+            pass
+        try_times = 10
+        while try_times > 0:
+            current_cookie = await self.browser_context.cookies()
+            _, cookie_dict = utils.convert_cookies(current_cookie)
+            if cookie_dict.get("a1", ""):
+                break
+            try_times -= 1
+            await asyncio.sleep(1)
 
     async def login_by_cookies(self):
         """login xiaohongshu website by cookies"""

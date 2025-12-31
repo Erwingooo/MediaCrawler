@@ -66,10 +66,11 @@ class XiaoHongShuClient(AbstractApiClient):
         encrypt_params = await self.playwright_page.evaluate(
             "([url, data]) => window._webmsxyw(url,data)", [url, data]
         )
-        local_storage = await self.playwright_page.evaluate("() => window.localStorage")
+        # 确保正确读取本地存储中的 b1
+        local_storage_b1 = await self.playwright_page.evaluate("() => window.localStorage.getItem('b1') || ''")
         signs = sign(
             a1=self.cookie_dict.get("a1", ""),
-            b1=local_storage.get("b1", ""),
+            b1=local_storage_b1,
             x_s=encrypt_params.get("X-s", ""),
             x_t=str(encrypt_params.get("X-t", "")),
         )
@@ -116,6 +117,7 @@ class XiaoHongShuClient(AbstractApiClient):
         elif data["code"] == self.IP_ERROR_CODE:
             raise IPBlockError(self.IP_ERROR_STR)
         else:
+            utils.logger.error(f"[XiaoHongShuClient.request] Request failed, code: {data.get('code')}, msg: {data.get('msg')}")
             raise DataFetchError(data.get("msg", None))
 
     async def get(self, uri: str, params=None) -> Dict:
@@ -182,10 +184,16 @@ class XiaoHongShuClient(AbstractApiClient):
         Returns:
 
         """
-        """get a note to check if login state is ok"""
         utils.logger.info("[XiaoHongShuClient.pong] Begin to pong xhs...")
         ping_flag = False
         try:
+            # 预热：先打开一次搜索结果页以初始化本地存储(b1)和签名环境
+            try:
+                await self.playwright_page.goto(f"{self._domain}/search_result?keyword=%E5%B0%8F%E7%BA%A2%E4%B9%A6")
+                await asyncio.sleep(1)
+            except Exception as nav_err:
+                utils.logger.info(f"[XiaoHongShuClient.pong] navigate prewarm skipped: {nav_err}")
+
             note_card: Dict = await self.get_note_by_keyword(keyword="小红书")
             if note_card.get("items"):
                 ping_flag = True
